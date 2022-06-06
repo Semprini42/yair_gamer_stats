@@ -1,4 +1,4 @@
-import os
+import os, time, re
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
 from pymongo import MongoClient
@@ -7,7 +7,6 @@ import pyautogui, cv2, pytesseract
 PATH = 'profile.jpg'
 pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Yan\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 config = ('-l eng --oem 1 --psm 3')
-
 
 # scrennshots yair's profile and extract text from it
 def get_gamer_status():
@@ -24,8 +23,9 @@ def get_gamer_status():
     profile_text = profile_text.split('\n')
     profile_text = list(filter(None, profile_text))
     try:
-        status_index = profile_text.index('RYTY #21494') + 1
+        status_index = profile_text.index('RYTY') + 1
         status = profile_text[status_index]
+        status = re.sub('[^A-Za-z0-9 ]+', '', status)
         return(status)
     except:
         return(0)
@@ -43,26 +43,38 @@ def Collection_connect():
 
 
 # Uploads entry to DB 
-def upload_entry(yair_collection, status):
-    time_of_upload = datetime.now()
-
+def upload_entry(yair_collection, status, previous_status, status_start_time):  
+    print(status)
     day_entry = yair_collection.find_one({'date': str(current_date())})
+    if (day_entry):
+        if (status in day_entry.keys()):
+            duration = (time.time() - status_start_time)/60
+            print(duration)
+            filter = {'date': str(current_date())}  
+            newvalues = { "$set": {status: duration}}
+            yair_collection.update_one(filter, newvalues)
+        else:
+            duration = (time.time() - status_start_time)/60
+            filter = {'date': str(current_date())} 
 
-    if day_entry:
+            newvalues = { "$set": {previous_status: duration}}
+            yair_collection.update_one(filter, newvalues)
 
-        # TODO: call the get_gamer_status function here and run it in a loop and just timer the time each status is on
-
-        time_diff = int((time_of_upload - day_entry[status]['start_time']).total_seconds()/60)
-        filter = {'date': str(current_date())}  
-        newvalues = { "$set": {status: {'duration': time_diff, 'start_time': day_entry[status]['start_time']}}}
-        yair_collection.update_one(filter, newvalues)
+            newvalues = { "$set": {status: 0}}
+            yair_collection.update_one(filter, newvalues)
+            status_start_time = time.time()
+            previous_status = status
 
     else:
         data = {
             'date': str(current_date()),
-            status: {'duration': 0, 'start_time': datetime.now()}
+            status: 0
         }
+        
+        status_start_time = time.time()
+        previous_status = status
         yair_collection.insert_one(data)
+    return (previous_status, status_start_time)
 
 
 # Returns corrent date
@@ -70,12 +82,11 @@ def current_date():
     return (datetime.date(datetime.now()))
 
 
-
-
 if __name__ == "__main__":
-    yair_collection = Collection_connect()
-    status = get_gamer_status()
-    if status:
-        upload_entry(yair_collection, 'test')
-    else:
-        print('Could not find status in screenshot.\nCheck if correct screenshot was taken')
+    status_start_time = time.time()
+    previous_status = get_gamer_status()
+    for i in range(15):
+        status = get_gamer_status()
+        yair_collection = Collection_connect()
+        previous_status, status_start_time = upload_entry(yair_collection, status,previous_status, status_start_time)
+        time.sleep(5)

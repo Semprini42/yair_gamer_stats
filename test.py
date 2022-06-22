@@ -1,79 +1,72 @@
 import os, time, re
+import cv2, pytesseract, pygsheets
 from datetime import datetime
-from dotenv import load_dotenv, find_dotenv
-from pymongo import MongoClient
-import pyautogui, cv2, pytesseract
+import numpy as np
+from PIL import ImageGrab
+import pandas as pd
 
-PATH = 'profile.jpg'
-pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Yan\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 config = ('-l eng --oem 1 --psm 3')
 
 # scrennshots yair's profile and extract text from it
 def get_gamer_status():
-    window = pyautogui.getWindowsWithTitle('Battle.net Profile')[0]
-    x1, y1, width, height = window.box
-    x2 = x1 + width
-    y2 = y1 + height
-
-    im = pyautogui.screenshot(PATH).crop((x1, y1, x2, y2))
-    im.save(PATH)
-
-    profile_img = cv2.imread(PATH)
-    profile_text = pytesseract.image_to_string(profile_img, config=config)
-    profile_text = profile_text.split('\n')
-    profile_text = list(filter(None, profile_text))
-    try:
-        status_index = profile_text.index('RYTY') + 1
-        status = profile_text[status_index]
-        status = re.sub('[^A-Za-z0-9 ]+', '', status)
-        return(status)
-    except:
-        return(0)
+    status_img = np.array(ImageGrab.grab(bbox=(1675, 260, 1810, 280))) #x, y, w, h
+    status_img = cv2.cvtColor(status_img, cv2.COLOR_BGR2GRAY)
+    status_img = cv2.bitwise_not(status_img) 
+    
+    status = pytesseract.image_to_string(status_img, config=config)
+    status = re.sub('[^A-Za-z0-9 ]+', '', status)
+    return(status)
 
 
-
-# Connect to yair's collection on mongo and returns it
-def Collection_connect():
-    load_dotenv(find_dotenv())
-    password = os.environ.get('MONGODB_PWD')
-    conn_str = f'mongodb+srv://yanu:{password}@gamerstats.bf81v.mongodb.net/?retryWrites=true&w=majority'
-    client = MongoClient(conn_str)
-    return (client['GamerStats']['Yair'])
+# Connect to yair's table on gsheet and returns the sheet
+def table_connect():
+    #authorization
+    gsheet = pygsheets.authorize(service_file='lofty-feat-297322-b5d75b9c09bb.json')
+    #open the google spreadsheet
+    sheets = gsheet.open('Gamer Stats')
+    #select the first sheet 
+    return(sheets[0])
 
 
 
 # Uploads entry to DB 
-def upload_entry(yair_collection, status, previous_status, status_start_time):  
-    print(status)
-    day_entry = yair_collection.find_one({'date': str(current_date())})
-    if (day_entry):
-        if (status in day_entry.keys()):
-            duration = (time.time() - status_start_time)/60
-            print(duration)
-            filter = {'date': str(current_date())}  
-            newvalues = { "$set": {status: duration}}
-            yair_collection.update_one(filter, newvalues)
-        else:
-            duration = (time.time() - status_start_time)/60
-            filter = {'date': str(current_date())} 
+def upload_entry(yair_table, status, previous_status, status_start_time):  
+    gamerDB = yair_table.get_as_df()
+    DBtoday = gamerDB[gamerDB['date'] == str(current_date())]
+    if (status in DBtoday['status']):
+        duration = (time.time() - status_start_time)/60
+        print(duration)
 
-            newvalues = { "$set": {previous_status: duration}}
-            yair_collection.update_one(filter, newvalues)
+        gamerDB['duration'][gamerDB['date'] == str(current_date()) and gamerDB['status'] == status] = duration
 
-            newvalues = { "$set": {status: 0}}
-            yair_collection.update_one(filter, newvalues)
-            status_start_time = time.time()
-            previous_status = status
+        # filter = {'date': str(current_date())}  
+        # newvalues = { "$set": {status: duration}}
+        # yair_collection.update_one(filter, newvalues)
+
+        duration = (time.time() - status_start_time)/60
+        filter = {'date': str(current_date())} 
+
+        newvalues = { "$set": {previous_status: duration}}
+        yair_collection.update_one(filter, newvalues)
+
+        newvalues = { "$set": {status: 0}}
+        yair_collection.update_one(filter, newvalues)
+        status_start_time = time.time()
+        previous_status = status
+        pass
 
     else:
-        data = {
-            'date': str(current_date()),
-            status: 0
-        }
+        data = pd.DataFrame({'date': [current_date()],
+                            'status': status,
+                            'duration': 0})
         
         status_start_time = time.time()
         previous_status = status
-        yair_collection.insert_one(data)
+        gamerDB = pd.concat([gamerDB, data], ignore_index=True)
+
+        # uploading new DF to table
+        yair_table.set_dataframe(gamerDB,(1,1))
     return (previous_status, status_start_time)
 
 
@@ -83,10 +76,11 @@ def current_date():
 
 
 if __name__ == "__main__":
+    print(get_gamer_status())
     status_start_time = time.time()
     previous_status = get_gamer_status()
-    for i in range(15):
-        status = get_gamer_status()
-        yair_collection = Collection_connect()
-        previous_status, status_start_time = upload_entry(yair_collection, status,previous_status, status_start_time)
-        time.sleep(5)
+    # for i in range(15):
+    status = get_gamer_status()
+    yair_table = table_connect()
+    previous_status, status_start_time = upload_entry(yair_table, status,previous_status, status_start_time)
+        # time.sleep(5)

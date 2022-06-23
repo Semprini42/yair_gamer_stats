@@ -70,7 +70,7 @@ def current_date():
 
 if __name__ == "__main__":
     print(get_gamer_status())
-    for i in range(15):
+    while True:
         status = get_gamer_status()
         yair_table = table_connect()
         upload_entry(yair_table, status)

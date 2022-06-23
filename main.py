@@ -10,7 +10,7 @@ config = ('-l eng --oem 1 --psm 3')
 
 # scrennshots yair's profile and extract text from it
 def get_gamer_status():
-    status_img = np.array(ImageGrab.grab(bbox=(1675, 260, 1810, 280))) #x, y, w, h
+    status_img = np.array(ImageGrab.grab(bbox=(1675, 260, 1850, 280))) #x, y, w, h
     status_img = cv2.cvtColor(status_img, cv2.COLOR_BGR2GRAY)
     status_img = cv2.bitwise_not(status_img) 
     
